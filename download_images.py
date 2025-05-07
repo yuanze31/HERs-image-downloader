@@ -1,35 +1,37 @@
 import argparse
+import hashlib
 import os
 import re
 from pathlib import Path
-import sys
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin, urlparse
+
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-import hashlib
 
 # 扩展MIME类型映射
 MIME_TO_EXT = {
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/svg+xml': 'svg',
-    'image/bmp': 'bmp',
-}
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/png': 'png',
+        'image/gif': 'gif',
+        'image/webp': 'webp',
+        'image/svg+xml': 'svg',
+        'image/bmp': 'bmp',
+        }
 
 # 通用浏览器头
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-}
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        }
+
 
 def sanitize_filename(filename):
     """处理非法文件名并限制长度"""
     filename = re.sub(r'[\\/*?:"<>|]', '_', filename)
     return filename[:255]  # 防止超长文件名
+
 
 def get_image_attributes(img_tag):
     """获取图片标签的有效属性"""
@@ -37,6 +39,7 @@ def get_image_attributes(img_tag):
         if img_tag.get(attr):
             return attr, img_tag[attr]
     return None, None
+
 
 def main():
     parser = argparse.ArgumentParser(description='增强版图片下载工具')
@@ -48,8 +51,16 @@ def main():
     download_dir = base_dir / 'imgDownload'
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    print("请输入多个链接（每行一个，Ctrl+D结束输入）：")
-    urls = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+    print("开源地址：https://github.com/yuanze31/HTML-img-downloader")
+    print("请输入多个链接（每行一个，{}结束输入）：".format("按Ctrl+D" if os.name == 'posix' else "按Ctrl+Z后回车"))
+    urls = []
+    try:
+        while True:
+            line = input()
+            if line.strip():
+                urls.append(line.strip())
+    except EOFError:
+        pass
 
     image_urls = []
     for url in urls:
@@ -97,9 +108,9 @@ def main():
                 # 扩展名处理逻辑
                 content_type = response.headers.get('Content-Type', '').split(';')[0].lower()
                 ext = MIME_TO_EXT.get(content_type, None)
-                
+
                 # 备用扩展名检测
-                if not ext: 
+                if not ext:
                     if response.url.endswith(('.jpg', '.jpeg')):
                         ext = 'jpg'
                     elif response.url.endswith('.png'):
@@ -124,7 +135,7 @@ def main():
                 with open(download_dir / base_name, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
-                
+
                 success_count += 1
             except Exception as e:
                 print(f"❌ 下载失败 [{img_url[:50]}...]: {str(e)}")
@@ -134,6 +145,7 @@ def main():
     print(f"\n✅ 下载完成！成功下载 {success_count}/{len(image_urls)} 张图片")
     if success_count < len(image_urls):
         print("提示：部分失败可能由于：\n1. 需要登录\n2. 动态加载内容\n3. 特殊反爬机制")
+
 
 if __name__ == "__main__":
     main()
