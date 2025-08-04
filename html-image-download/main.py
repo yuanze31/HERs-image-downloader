@@ -170,6 +170,7 @@ def main():
 
     print(f"\n\n成功下载 {success_count}/{total} 张图片")
     print(f"已保存到: {download_dir}")
+    print("---就在你的桌面---")
 
     if success_count < total:
         print("\n部分图片下载失败可能由于：")
