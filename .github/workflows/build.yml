@@ -19,13 +19,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
+          pip install -r requirements.txt
 
       - name: Build executable
         run: |
-          pyinstaller --onefile --icon=yuanze31.ico download_images.py
+          pyinstaller --onefile --icon=yuanze31.ico --name "网页图片下载器" --add-data "yuanze31.ico;." download_images.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: executable
-          path: dist/download_images.exe
+          path: dist/网页图片下载器.exe
