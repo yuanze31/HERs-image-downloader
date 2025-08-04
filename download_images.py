@@ -1,9 +1,8 @@
-import argparse
 import hashlib
 import os
 import re
 import ssl
-from pathlib import Path
+import sys
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
@@ -49,55 +48,80 @@ def extract_image_sources(html):
     return sources
 
 
+def normalize_url(url):
+    """规范化URL，确保有协议"""
+    url = url.strip()
+    if re.match(r'^https?://', url, re.IGNORECASE):
+        return url
+    if url.startswith('//'):
+        return 'https:' + url
+    return 'https://' + url
+
+
 def main():
-    parser = argparse.ArgumentParser(description='轻量版图片下载工具')
-    parser.add_argument('--debug', action='store_true', help='调试模式')
-    args = parser.parse_args()
+    # 创建下载目录
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    download_dir = os.path.join(desktop, "0000网页图片下载")
+    os.makedirs(download_dir, exist_ok=True)
 
-    base_dir = Path.cwd() if args.debug else Path.home() / 'Desktop'
-    download_dir = base_dir / 'imgDownload'
-    download_dir.mkdir(parents=True, exist_ok=True)
+    # 简化用户输入
+    print("=" * 50)
+    print("网页图片下载工具")
+    print("=" * 50)
+    raw_url = input("请输入网页链接，只支持一条链接（输入后按回车开始下载）:\n> ").strip()
 
-    print("请输入多个链接（每行一个，{}结束输入）：".format("按Ctrl+D" if os.name == 'posix' else "按Ctrl+Z后回车"))
-    urls = []
-    try:
-        while True:
-            line = input()
-            if line.strip():
-                urls.append(line.strip())
-    except EOFError:
-        pass
+    if not raw_url:
+        print("未输入链接，程序已退出")
+        return
 
+    # 规范化URL
+    url = normalize_url(raw_url)
+    print(f"规范化后的URL: {url}")
+
+    print("正在分析网页内容...")
     image_urls = []
-    for url in urls:
-        try:
-            req = Request(url, headers=HEADERS)
-            with urlopen(req, timeout=10) as response:
-                content_type = response.info().get('Content-Type', '').split(';')[0].lower()
 
-                if 'text/html' in content_type:
-                    html = response.read().decode('utf-8', errors='ignore')
-                    for src in extract_image_sources(html):
-                        # 处理微信公众号特殊格式
-                        if 'mp.weixin.qq.com' in url:
-                            if src.startswith('//'):
-                                src = f'https:{src}'
-                            elif src.startswith('/'):
-                                src = f'https://mp.weixin.qq.com{src}'
+    try:
+        req = Request(url, headers=HEADERS)
+        with urlopen(req, timeout=10) as response:
+            content_type = response.info().get('Content-Type', '').split(';')[0].lower()
+            base_url = response.url  # 获取最终URL（考虑重定向）
 
-                        absolute_url = urljoin(url, src)
-                        image_urls.append(absolute_url)
-                elif content_type.startswith('image/'):
-                    image_urls.append(url)
-                else:
-                    print(f"⚠ 跳过非媒体内容：{url}")
+            if 'text/html' in content_type:
+                html = response.read().decode('utf-8', errors='ignore')
+                for src in extract_image_sources(html):
+                    # 协议相对路径处理
+                    if src.startswith('//'):
+                        src = f'https:{src}'
+                    # 根路径相对路径处理
+                    elif src.startswith('/'):
+                        parsed = urlparse(base_url)
+                        src = f"{parsed.scheme}://{parsed.netloc}{src}"
+                    # 微信特殊处理
+                    elif 'mmbiz.' in src and not src.startswith(('http:', 'https:')):
+                        src = f'https:{src}' if src.startswith('//') else f'https://{src}'
 
-        except Exception as e:
-            print(f"❌ 处理链接失败 [{url}]: {str(e)}")
+                    absolute_url = urljoin(base_url, src)
+                    image_urls.append(absolute_url)
+
+            elif content_type.startswith('image/'):
+                image_urls.append(base_url)
+            else:
+                print(f"跳过非媒体内容：{url}")
+                return
+
+    except Exception as e:
+        print(f"处理链接失败: {str(e)}")
+        return
 
     success_count = 0
     total = len(image_urls)
-    print(f"开始下载{total}张图片...")
+
+    if total == 0:
+        print("未找到任何图片")
+        return
+
+    print(f"发现 {total} 张图片，开始下载...")
 
     for i, img_url in enumerate(image_urls, 1):
         try:
@@ -124,13 +148,15 @@ def main():
                 base_name = f"{root}.{ext}"
 
                 # 冲突解决
+                save_path = os.path.join(download_dir, base_name)
                 counter = 1
-                while (download_dir / base_name).exists():
+                while os.path.exists(save_path):
                     base_name = f"{root}_{counter}.{ext}"
+                    save_path = os.path.join(download_dir, base_name)
                     counter += 1
 
                 # 流式下载
-                with open(download_dir / base_name, 'wb') as f:
+                with open(save_path, 'wb') as f:
                     while True:
                         chunk = response.read(8192)
                         if not chunk:
@@ -138,14 +164,33 @@ def main():
                         f.write(chunk)
 
                 success_count += 1
-                print(f"\r✅ 成功下载 {i}/{total}", end='')
+                print(f"\r下载进度: {i}/{total} (成功: {success_count})", end='')
         except Exception as e:
-            print(f"\r❌ 下载失败 [{i}/{total}]: {str(e)[:50]}")
+            print(f"\r下载失败 [{i}/{total}]: {str(e)[:50]}")
 
-    print(f"\n✅ 下载完成！成功下载 {success_count}/{total} 张图片")
+    print(f"\n\n成功下载 {success_count}/{total} 张图片")
+    print(f"已保存到: {download_dir}")
+
     if success_count < total:
-        print("提示：失败可能由于：\n1. 需要登录\n2. 动态加载内容\n3. 特殊反爬机制")
+        print("\n部分图片下载失败可能由于：")
+        print("1. 需要登录才能查看的图片")
+        print("2. 动态加载的内容（如JavaScript生成的图片）")
+        print("3. 网站的特殊保护机制")
+        print("\n但是她就不需要关心为什么了，只需要找他就好了")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        # 忽略sys.exit调用
+        pass
+    except:
+        # 打印异常信息
+        import traceback
+
+        traceback.print_exc()
+
+    # 打包环境下安全暂停
+    if getattr(sys, 'frozen', False):
+        input("\n按回车键退出程序...")
